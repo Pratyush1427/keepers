@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Export{% endblock %}
+{% block content %}
+<main class="page narrow">
+  <h1>Export</h1>
+  <p class="muted">Writes your photos into sorted folders. File names start with the capture time, so they sort chronologically anywhere.</p>
+
+  <form id="export-form" class="card stack">
+    <fieldset>
+      <legend>Which photos</legend>
+      {% for key, (label, _) in selections.items() %}
+      <label class="choice">
+        <input type="radio" name="selection" value="{{ key }}" {{ 'checked' if loop.first }}>
+        <span>{{ label }}</span>
+        <span class="muted">{{ counts[key] }}</span>
+      </label>
+      {% endfor %}
+    </fieldset>
+
+    <fieldset>
+      <legend>Folder layout</legend>
+      {% for key, (label, example) in layouts.items() %}
+      <label class="choice">
+        <input type="radio" name="layout" value="{{ key }}" {{ 'checked' if loop.first }}>
+        <span>{{ label }}</span>
+        <code>{{ example }}</code>
+      </label>
+      {% endfor %}
+      <p class="muted small">
+        {% if named %}Folders for: {{ named|join(', ') }}. {% endif %}
+        Only people you've named get a folder; photos without anyone named go into <i>Others</i>.
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Files</legend>
+      <label class="choice"><input type="radio" name="mode" value="copy" checked><span>Copy the photos</span></label>
+      <label class="choice"><input type="radio" name="mode" value="link"><span>Symlinks to the originals</span><span class="muted">no extra disk space</span></label>
+    </fieldset>
+
+    <label class="field">Destination folder
+      <input name="out_dir" value="{{ last_folder }}" placeholder="/Users/you/Pictures/Sorted" required>
+    </label>
+    <div><button type="submit" class="btn primary">Export</button></div>
+    <p id="export-result" class="muted small" hidden></p>
+  </form>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelector('#export-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target, out = document.querySelector('#export-result');
+    const button = f.querySelector('button[type=submit]');
+    button.disabled = true;
+    out.hidden = false;
+    out.textContent = 'Exporting…';
+    try {
+      const r = await api('/api/export', {
+        out_dir: f.out_dir.value, layout: f.layout.value, mode: f.mode.value, selection: f.selection.value,
+      });
+      out.textContent = `Done: ${r.written} files written to ${r.out_dir}` +
+        (r.already_there ? `, ${r.already_there} were already there` : '') +
+        (r.missing_originals ? `, ${r.missing_originals} originals missing (import again to update)` : '') + '.';
+    } catch (err) { out.hidden = true; toast(err.message, true); }
+    button.disabled = false;
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}{{ person.label if person else 'Not grouped' }}{% endblock %}
+{% block content %}
+<main class="page">
+  <a class="btn ghost small" href="{{ url_for('people') }}"><svg class="i"><use href="#i-left"/></svg>People</a>
+
+  {% if person %}
+  <div class="person-head">
+    {% if faces %}<img class="avatar" src="{{ url_for('face_thumb', fid=faces[0].id) }}" alt="">{% endif %}
+    <div class="details">
+      <form id="rename">
+        <input class="name-edit" name="name" value="{{ person.name or '' }}" placeholder="Add a name…" aria-label="Name" autocomplete="off" required>
+      </form>
+      <div class="person-stats">
+        <span><b>{{ stats.photos }}</b> photo{{ 's' if stats.photos != 1 }}</span>
+        <span><b>{{ faces|length }}</b> face{{ 's' if faces|length != 1 }}</span>
+        {% if stats.first %}<span>{{ stats.first.strftime('%-d %b %Y') }}{% if stats.last.date() != stats.first.date() %} – {{ stats.last.strftime('%-d %b %Y') }}{% endif %}</span>{% endif %}
+      </div>
+      <div class="row">
+        <a class="btn primary small" href="{{ url_for('library', person=person.id) }}"><svg class="i"><use href="#i-library"/></svg>Show photos</a>
+        {% if others %}
+        <select id="merge-into" aria-label="Merge into">
+          <option value="">Same person as…</option>
+          {% for o in others %}<option value="{{ o.id }}">{{ o.label }}</option>{% endfor %}
+        </select>
+        <button id="merge" class="btn small"><svg class="i"><use href="#i-merge"/></svg>Merge</button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <p class="muted small hint">Click faces to select them (Shift-click for a range), then move them to someone else or remove them.</p>
+  {% else %}
+  <div class="page-head" style="margin: 1rem 0">
+    <div>
+      <h1>Not grouped</h1>
+      <p class="muted small lede">These faces didn't match anyone. Select faces and choose who they are.</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <datalist id="names">{% for o in others if o.named %}<option value="{{ o.name }}">{% endfor %}</datalist>
+
+  <div class="face-grid">
+    {% for f in faces %}
+    <div class="face" data-id="{{ f.id }}" title="{{ f.taken_at[:16] }}">
+      <img class="fade" src="{{ url_for('face_thumb', fid=f.id) }}" loading="lazy" alt="">
+      <span class="tile-check" aria-hidden="true"><svg class="i"><use href="#i-check"/></svg></span>
+      <a class="open" href="{{ url_for('photo', pid=f.photo_id) }}" title="Open photo"><svg class="i"><use href="#i-open"/></svg></a>
+    </div>
+    {% endfor %}
+  </div>
+  {% if not faces %}<div class="empty"><svg class="i"><use href="#i-face"/></svg><p>No faces here.</p></div>{% endif %}
+</main>
+
+<div class="selbar" id="selbar" hidden>
+  <span class="selbar-count"><b id="sel-count">0</b> selected</span>
+  <form id="move-form" class="row">
+    <input name="name" list="names" autocomplete="off" placeholder="{{ 'Move to…' if person else 'Who is this?' }}" aria-label="Person's name">
+    <button type="submit" class="btn primary small">{{ 'Move' if person else 'Assign' }}</button>
+  </form>
+  {% if person %}
+  <span class="sep"></span>
+  <button type="button" class="btn small danger" id="not-them"><svg class="i"><use href="#i-x"/></svg>Not {{ person.label }}</button>
+  {% endif %}
+  <span class="sep"></span>
+  <button type="button" class="btn ghost small" id="sel-all">All</button>
+  <button type="button" class="btn ghost small" id="sel-clear" title="Esc">Done</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const selbar = document.getElementById('selbar');
+  const sel = createSelection('.face', (count) => {
+    selbar.hidden = count === 0;
+    document.body.classList.toggle('has-selbar', count > 0);
+    document.getElementById('sel-count').textContent = count;
+  });
+  document.querySelectorAll('.face').forEach((face) => face.addEventListener('click', (e) => {
+    if (e.target.closest('.open')) return;
+    if (e.shiftKey) sel.range(face); else sel.toggle(face);
+  }));
+  document.getElementById('sel-all').addEventListener('click', () => sel.all());
+  document.getElementById('sel-clear').addEventListener('click', () => sel.clear());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sel.selected.size && !e.target.matches('input')) sel.clear();
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && !e.target.matches('input')) { e.preventDefault(); sel.all(); }
+  });
+
+  async function moveSelected(body, message) {
+    try {
+      await api('/api/faces/assign', { ids: sel.ids(), ...body });
+      toastAfterReload(message);
+      location.reload();
+    } catch (err) { toast(err.message, true); }
+  }
+  document.getElementById('move-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = e.target.name.value.trim();
+    if (!name) return e.target.name.focus();
+    const n = sel.selected.size;
+    moveSelected({ new_name: name }, `${n} face${n > 1 ? 's' : ''} moved to ${name}`);
+  });
+
+  {% if person %}
+  const PERSON = {{ person.label|tojson }};
+  document.getElementById('not-them').addEventListener('click', () => {
+    const n = sel.selected.size;
+    moveSelected({ person_id: null }, `${n} face${n > 1 ? 's' : ''} removed from ${PERSON}`);
+  });
+
+  const rename = document.getElementById('rename');
+  const nameInput = rename.querySelector('input');
+  const original = nameInput.value;
+  async function saveName() {
+    const name = nameInput.value.trim();
+    if (!name || name === original) { nameInput.value = original; return; }
+    try {
+      const r = await api('/api/person/{{ person.id }}/rename', { name });
+      toastAfterReload(r.merged ? `Merged into ${name}` : `Renamed to ${name}`);
+      if (r.redirect) location.href = r.redirect; else location.reload();
+    } catch (err) { toast(err.message, true); }
+  }
+  rename.addEventListener('submit', (e) => { e.preventDefault(); nameInput.blur(); });
+  nameInput.addEventListener('blur', saveName);
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { nameInput.value = original; nameInput.blur(); } });
+
+  const mergeButton = document.getElementById('merge');
+  if (mergeButton) mergeButton.addEventListener('click', async () => {
+    const select = document.getElementById('merge-into');
+    const into = parseInt(select.value, 10);
+    if (!into) return toast('Choose who this is first.', true);
+    const label = select.options[select.selectedIndex].text;
+    if (!(await confirmBar(`Merge ${PERSON} into ${label}?`, 'Merge'))) return;
+    try {
+      const r = await api('/api/person/{{ person.id }}/merge', { into });
+      toastAfterReload(`Merged into ${label}`);
+      location.href = r.redirect;
+    } catch (err) { toast(err.message, true); }
+  });
+  {% endif %}
+</script>
+{% endblock %}

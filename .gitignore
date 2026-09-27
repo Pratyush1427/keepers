@@ -1,0 +1,13 @@
+# Personal data: the photo database (face data, names, file paths), thumbnails and downloaded models
+data/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Import{% endblock %}
+{% block content %}
+<main class="page narrow">
+  <h1>Import</h1>
+  <p class="muted">Reads when each photo was taken and finds the faces in it. Originals are never modified.
+    Importing the same folder again only processes new or edited photos, and keeps your ratings and flags.</p>
+
+  <section class="card">
+    <form id="scan-form" class="row">
+      <input name="folder" value="{{ folder }}" placeholder="/Users/you/Pictures/Shoot" required aria-label="Folder">
+      <button type="submit" class="btn primary">Import folder</button>
+    </form>
+    <div id="scan-status" class="scan-status" hidden>
+      <div class="progress"><div class="bar"></div></div>
+      <p class="msg muted small"></p>
+    </div>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><strong>{{ stats.photos }}</strong><span>Photos</span></div>
+    <div class="stat"><strong>{{ stats.faces }}</strong><span>Faces</span></div>
+    <div class="stat"><strong>{{ stats.named }}</strong><span>Named people</span></div>
+    <div class="stat"><strong>{{ stats.unnamed }}</strong><span>Unnamed groups</span></div>
+  </section>
+  {% if stats.first %}
+  <p class="muted small">Shot between {{ stats.first[:10] }} and {{ stats.last[:10] }}.</p>
+  {% endif %}
+
+  <section class="card">
+    <h2>Face groups</h2>
+    <p class="muted small">After naming people or removing wrong faces, regroup to let the model re-sort everyone it hasn't placed yet.</p>
+    <button id="recluster" class="btn">Regroup faces</button>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const box = document.querySelector('#scan-status');
+  const scanButton = document.querySelector('#scan-form button');
+  let wasRunning = false;
+
+  function render(s) {
+    const running = s.state === 'scanning' || s.state === 'clustering';
+    box.hidden = s.state === 'idle';
+    scanButton.disabled = running;
+    const pct = s.total ? Math.round(100 * s.processed / s.total) : (s.state === 'done' ? 100 : 0);
+    box.querySelector('.bar').style.width = pct + '%';
+    const counts = s.total ? `${s.processed} / ${s.total} photos · ${s.faces} faces · ` : '';
+    box.querySelector('.msg').textContent = s.state === 'done' || s.state === 'error' ? s.message : counts + s.message;
+    box.classList.toggle('error', s.state === 'error');
+    return running;
+  }
+
+  async function poll() {
+    const s = await (await fetch('/api/status')).json();
+    if (render(s)) { wasRunning = true; setTimeout(poll, 700); }
+    else if (wasRunning && s.state === 'done') { setTimeout(() => location.reload(), 1500); }
+  }
+
+  document.querySelector('#scan-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/scan', { folder: e.target.folder.value });
+      wasRunning = true;
+      poll();
+    } catch (err) { toast(err.message, true); }
+  });
+
+  document.querySelector('#recluster').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      const r = await api('/api/recluster');
+      toast(`${r.new_groups} groups, ${r.matched_to_named} faces matched to named people, ${r.unknown_faces} not grouped.`);
+      setTimeout(() => location.reload(), 1500);
+    } catch (err) { toast(err.message, true); e.target.disabled = false; }
+  });
+
+  poll();
+</script>
+{% endblock %}

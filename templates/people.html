@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}People{% endblock %}
+{% macro card(p) %}
+<div class="person-card" draggable="true" data-id="{{ p.id }}" data-label="{{ p.label }}" data-named="{{ p.named }}">
+  <a href="{{ url_for('person', pid=p.id) }}" draggable="false">
+    <img class="cover" src="{{ url_for('face_thumb', fid=p.cover) }}" loading="lazy" alt="" draggable="false">
+    {% if p.samples|length > 1 %}
+    <span class="samples">{% for fid in p.samples[1:4] %}<img src="{{ url_for('face_thumb', fid=fid) }}" loading="lazy" alt="" draggable="false">{% endfor %}</span>
+    {% endif %}
+    {% if p.named %}<span class="name">{{ p.label }}</span>{% endif %}
+    <span class="muted">{{ p.photos }} photo{{ 's' if p.photos != 1 }}</span>
+  </a>
+  {% if not p.named %}
+  <form class="quick-name" data-person="{{ p.id }}">
+    <input name="name" list="names" autocomplete="off" placeholder="Add a name" aria-label="Name {{ p.label }}">
+  </form>
+  {% endif %}
+</div>
+{% endmacro %}
+{% block content %}
+<main class="page">
+  <div class="page-head">
+    <div>
+      <h1>People</h1>
+      <p class="muted small lede">{{ named|length }} named{% if unnamed %} · {{ unnamed|length }} still to name{% endif %}.
+        Drag one person onto another to merge them.</p>
+    </div>
+    <div class="people-tools">
+      {% if named or unnamed %}
+      <label class="search"><svg class="i"><use href="#i-search"/></svg>
+        <input type="search" id="people-search" placeholder="Search people" aria-label="Search people">
+      </label>
+      {% endif %}
+      {% if unnamed %}<a class="btn primary" href="{{ url_for('tag_group_photo') }}"><svg class="i"><use href="#i-tag"/></svg>Name from a group photo</a>{% endif %}
+    </div>
+  </div>
+  <datalist id="names">{% for p in named %}<option value="{{ p.name }}">{% endfor %}</datalist>
+
+  {% if not named and not unnamed and not unknown %}
+  <div class="empty">
+    <svg class="i"><use href="#i-people"/></svg>
+    <p>No faces found yet.</p>
+    <a class="btn primary" href="{{ url_for('import_page') }}"><svg class="i"><use href="#i-import"/></svg>Import photos</a>
+  </div>
+  {% endif %}
+
+  {% if unnamed %}
+  <div class="section-head">
+    <h2>Who are these?</h2><span class="count">{{ unnamed|length }}</span>
+    <p class="muted small">Type a name and press Enter. A name you've used before merges them.</p>
+  </div>
+  <div class="people-grid">{% for p in unnamed %}{{ card(p) }}{% endfor %}</div>
+  {% endif %}
+
+  {% if named %}
+  <div class="section-head"><h2>Named</h2><span class="count">{{ named|length }}</span></div>
+  <div class="people-grid">{% for p in named %}{{ card(p) }}{% endfor %}</div>
+  {% endif %}
+
+  {% if unknown %}
+  <div class="section-head"><h2>Not grouped</h2><span class="count">{{ unknown }}</span></div>
+  <a class="card unknown-strip" href="{{ url_for('unknown_faces') }}">
+    <span class="faces">{% for fid in unknown_samples %}<img src="{{ url_for('face_thumb', fid=fid) }}" loading="lazy" alt="">{% endfor %}</span>
+    <span>{{ unknown }} face{{ 's' if unknown != 1 }} didn't look like anyone else. <b>Sort them →</b></span>
+  </a>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ---- naming unnamed groups inline
+  const forms = [...document.querySelectorAll('.quick-name')];
+  forms.forEach((form, idx) => form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = form.querySelector('input');
+    const name = input.value.trim();
+    if (!name) return;
+    input.disabled = true;
+    try {
+      const r = await api(`/api/person/${form.dataset.person}/rename`, { name });
+      const card = form.closest('.person-card');
+      card.classList.add('done');
+      card.dataset.label = name;
+      card.dataset.named = '1';
+      form.replaceWith(Object.assign(document.createElement('span'), { className: 'name', textContent: name }));
+      toast(r.merged ? `Merged into ${name}` : `Named ${name}`);
+      const next = forms.slice(idx + 1).find((f) => document.body.contains(f));
+      if (next) next.querySelector('input').focus();
+      const list = document.querySelector('#names');
+      if (![...list.options].some((o) => o.value === name)) list.append(Object.assign(document.createElement('option'), { value: name }));
+    } catch (err) { input.disabled = false; toast(err.message, true); }
+  }));
+
+  // ---- search
+  const search = document.getElementById('people-search');
+  if (search) search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    document.querySelectorAll('.person-card').forEach((c) => {
+      c.hidden = Boolean(q) && !c.dataset.label.toLowerCase().includes(q);
+    });
+  });
+
+  // ---- drag a person onto another to merge
+  let dragged = null;
+  document.querySelectorAll('.person-card').forEach((card) => {
+    card.addEventListener('dragstart', (e) => {
+      if (e.target.closest('input')) return e.preventDefault();
+      dragged = card;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.id);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.drop-target').forEach((c) => c.classList.remove('drop-target'));
+      dragged = null;
+    });
+    card.addEventListener('dragover', (e) => {
+      if (!dragged || dragged === card) return;
+      e.preventDefault();
+      card.classList.add('drop-target');
+    });
+    card.addEventListener('dragleave', (e) => {
+      if (!card.contains(e.relatedTarget)) card.classList.remove('drop-target');
+    });
+    card.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      card.classList.remove('drop-target');
+      if (!dragged || dragged === card) return;
+      // An unnamed group dropped on (or under) a named person always joins the named one.
+      let source = dragged, target = card;
+      if (source.dataset.named === '1' && target.dataset.named === '0') [source, target] = [target, source];
+      const ok = await confirmBar(`Merge “${source.dataset.label}” into “${target.dataset.label}”?`, 'Merge');
+      if (!ok) return;
+      try {
+        await api(`/api/person/${source.dataset.id}/merge`, { into: Number(target.dataset.id) });
+        toastAfterReload(`Merged into ${target.dataset.label}`);
+        location.reload();
+      } catch (err) { toast(err.message, true); }
+    });
+  });
+</script>
+{% endblock %}

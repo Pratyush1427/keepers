@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+{% block title %}{{ name }}{% endblock %}
+{% block bodyclass %}page-loupe{% endblock %}
+{% block content %}
+{% set suffix = qs(filters) %}
+<div class="loupe" id="loupe">
+  <section class="stage" id="stage">
+    <div class="frame" id="frame">
+      <img id="photo" src="{{ url_for('preview', pid=photo.id) }}" data-full="{{ url_for('image', pid=photo.id) }}" alt="{{ name }}">
+      {% for f in faces %}
+      <button type="button" class="box{{ ' named' if f.named }}" data-face="{{ f.id }}" title="{{ f.name if f.named else 'Name this person' }}"
+              style="left:{{ f.x*100 }}%;top:{{ f.y*100 }}%;width:{{ f.w*100 }}%;height:{{ f.h*100 }}%">
+        <span>{{ f.name if f.named else '?' }}</span>
+      </button>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if prev_id %}<a class="stage-nav prev" id="prev" href="{{ url_for('photo', pid=prev_id) }}{{ suffix }}" title="Previous (←)" aria-label="Previous photo"><svg class="i"><use href="#i-left"/></svg></a>{% endif %}
+  {% if next_id %}<a class="stage-nav next" id="next" href="{{ url_for('photo', pid=next_id) }}{{ suffix }}" title="Next (→)" aria-label="Next photo"><svg class="i"><use href="#i-right"/></svg></a>{% endif %}
+
+  <div class="hud">
+    <a class="hud-btn" id="to-grid" href="{{ url_for('library') }}{{ suffix }}#p{{ photo.id }}" title="Back to grid (Esc)">
+      <svg class="i"><use href="#i-library"/></svg>Grid
+    </a>
+    <span class="sep"></span>
+    <span class="hud-pos">{{ position }} / {{ count }}</span>
+    <span class="sep"></span>
+    <button type="button" class="hud-btn" id="zoom" title="Zoom to 100% (Z), or click the photo"><svg class="i"><use href="#i-zoom"/></svg><span>100%</span></button>
+    {% if faces %}<button type="button" class="hud-btn" id="boxes" title="Show face boxes (B)"><svg class="i"><use href="#i-face"/></svg>Faces</button>{% endif %}
+    <button type="button" class="hud-btn" id="panel-toggle" title="Show / hide side panel (I)"><svg class="i"><use href="#i-panel"/></svg>Info</button>
+  </div>
+
+  <aside class="panel" id="panel">
+    <section class="panel-head">
+      <div class="filename" title="{{ photo.path }}">{{ name }}</div>
+      <div class="muted small">{{ taken.strftime('%a') }} {{ taken.day }} {{ taken.strftime('%b %Y') }} · {{ taken.strftime('%H:%M:%S') }}</div>
+    </section>
+
+    <section class="panel-sec">
+      <div class="cull">
+        <div class="stars" id="stars" role="group" aria-label="Rating">
+          {% for i in range(1, 6) %}<button type="button" data-rating="{{ i }}" title="{{ i }} star{{ 's' if i > 1 }} ({{ i }})">★</button>{% endfor %}
+        </div>
+        <div class="flags" id="flags" role="group" aria-label="Flag">
+          <button type="button" data-flag="1" class="flag-pick" title="Pick (P)">
+            <svg class="i"><use href="#i-flag"/></svg>Pick</button>
+          <button type="button" data-flag="-1" class="flag-reject" title="Reject (X)">
+            <svg class="i"><use href="#i-x"/></svg>Reject</button>
+        </div>
+      </div>
+      <label class="check small"><input type="checkbox" id="auto-advance"> Next photo after rating or flagging</label>
+    </section>
+
+    <section class="panel-sec">
+      <canvas id="histogram" width="576" height="150" aria-label="Histogram"></canvas>
+      <dl class="meta">
+        {% for label, value in camera %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+        <dt>Dimensions</dt><dd>{{ photo.width }} × {{ photo.height }}{% if photo.width and photo.width * photo.height > 1000000 %} ({{ '%.1f' % (photo.width * photo.height / 1000000) }} MP){% endif %}</dd>
+        {% if file_size %}<dt>File size</dt><dd>{{ '%.1f' % (file_size / 1048576) }} MB</dd>{% endif %}
+        <dt>Date from</dt><dd>{{ date_source }}</dd>
+      </dl>
+    </section>
+
+    <section class="panel-sec">
+      <h3>People <span class="muted">{{ faces|length or '' }}</span></h3>
+      {% if faces %}
+      <p class="muted small">Click a face, type a name, press Enter. Naming one face names that person in all their photos.</p>
+      {% else %}
+      <p class="muted small">No faces found.</p>
+      {% endif %}
+      <datalist id="names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
+      {% for f in faces %}
+      <form class="face-row" data-face="{{ f.id }}" data-original="{{ f.name if f.named else '' }}">
+        <img src="{{ url_for('face_thumb', fid=f.id) }}" alt="">
+        <div class="face-input">
+          <input name="name" list="names" autocomplete="off" placeholder="Who is this?" value="{{ f.name if f.named else '' }}">
+          <small class="muted">
+            {% if f.named %}<a href="{{ url_for('library', person=f.person_id) }}">{{ f.group_size }} photos of {{ f.name }}</a>
+            {% elif f.person_id %}Names all {{ f.group_size }} faces in this group
+            {% else %}Only this face{% endif %}
+          </small>
+        </div>
+        {% if f.person_id %}<button type="button" class="clear" title="Wrong person: remove this face from {{ f.label }}">&times;</button>{% endif %}
+      </form>
+      {% endfor %}
+      <a class="btn ghost small" href="{{ url_for('tag_group_photo') }}"><svg class="i"><use href="#i-tag"/></svg>Next photo with unnamed people</a>
+    </section>
+
+    <section class="panel-sec">
+      <h3>File</h3>
+      <p class="path small">{{ photo.path }}</p>
+      {% if can_reveal %}
+      <div class="row">
+        <button type="button" class="btn small" data-reveal="finder"><svg class="i"><use href="#i-folder"/></svg>Show in Finder</button>
+        <button type="button" class="btn small" data-reveal="open"><svg class="i"><use href="#i-open"/></svg>Open in editor</button>
+      </div>
+      {% endif %}
+    </section>
+  </aside>
+
+  <nav class="filmstrip" id="filmstrip" aria-label="Nearby photos">
+    {% for sid in strip %}<a href="{{ url_for('photo', pid=sid) }}{{ suffix }}"{% if sid == photo.id %} class="current" aria-current="true"{% endif %}><img src="{{ url_for('thumb', pid=sid) }}" loading="lazy" alt=""></a>{% endfor %}
+  </nav>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PHOTO_ID = {{ photo.id }};
+  const loupe = document.getElementById('loupe');
+  const stage = document.getElementById('stage');
+  const img = document.getElementById('photo');
+  const prevLink = document.getElementById('prev');
+  const nextLink = document.getElementById('next');
+  const help = document.getElementById('help');
+  let meta = { rating: {{ photo.rating }}, flag: {{ photo.flag }} };
+
+  // ---- rating & flags
+  const autoAdvance = document.getElementById('auto-advance');
+  autoAdvance.checked = store.get('autoAdvance') === '1';
+  autoAdvance.addEventListener('change', () => store.set('autoAdvance', autoAdvance.checked ? '1' : '0'));
+
+  function renderMeta() {
+    document.querySelectorAll('#stars button').forEach((b) => b.classList.toggle('on', Number(b.dataset.rating) <= meta.rating));
+    document.querySelectorAll('#flags button').forEach((b) => b.classList.toggle('on', Number(b.dataset.flag) === meta.flag));
+    loupe.classList.toggle('is-reject', meta.flag === -1);
+  }
+
+  async function setMeta(change) {
+    try {
+      meta = await api(`/api/photo/${PHOTO_ID}/meta`, change);
+      renderMeta();
+      if (autoAdvance.checked && nextLink) setTimeout(() => { location.href = nextLink.href; }, 120);
+    } catch (err) { toast(err.message, true); }
+  }
+
+  document.querySelectorAll('#stars button').forEach((b) => b.addEventListener('click', () => {
+    const r = Number(b.dataset.rating);
+    setMeta({ rating: r === meta.rating ? 0 : r });
+  }));
+  document.querySelectorAll('#flags button').forEach((b) => b.addEventListener('click', () => {
+    const f = Number(b.dataset.flag);
+    setMeta({ flag: f === meta.flag ? 0 : f });
+  }));
+  renderMeta();
+
+  // ---- view toggles
+  const boxesBtn = document.getElementById('boxes');
+  function setBoxes(on) {
+    loupe.classList.toggle('show-boxes', on);
+    if (boxesBtn) boxesBtn.classList.toggle('on', on);
+    store.set('boxes', on ? '1' : '0');
+  }
+  setBoxes(store.get('boxes') === '1');
+  if (boxesBtn) boxesBtn.addEventListener('click', () => setBoxes(!loupe.classList.contains('show-boxes')));
+
+  const panelBtn = document.getElementById('panel-toggle');
+  function setPanel(on) {
+    loupe.classList.toggle('no-panel', !on);
+    panelBtn.classList.toggle('on', on);
+    store.set('panel', on ? '1' : '0');
+  }
+  setPanel(store.get('panel') !== '0');
+  panelBtn.addEventListener('click', () => setPanel(loupe.classList.contains('no-panel')));
+
+  // ---- 100% zoom: loads the original, shown at one image pixel per screen pixel; drag to pan
+  const zoomBtn = document.getElementById('zoom');
+  const zoomLabel = zoomBtn.querySelector('span');
+  let zoomed = false;
+  function zoomIn(fx = 0.5, fy = 0.5) {
+    zoomed = true;
+    zoomBtn.classList.add('on');
+    zoomLabel.textContent = 'Loading…';
+    const full = new Image();
+    full.onload = () => {
+      if (!zoomed) return;
+      img.src = full.src;
+      img.style.width = (full.naturalWidth / devicePixelRatio) + 'px';
+      stage.classList.add('zoomed');
+      stage.scrollLeft = fx * img.offsetWidth - stage.clientWidth / 2;
+      stage.scrollTop = fy * img.offsetHeight - stage.clientHeight / 2;
+      zoomLabel.textContent = 'Fit';
+    };
+    full.onerror = () => { zoomOut(); toast('Could not load the original.', true); };
+    full.src = img.dataset.full;
+  }
+  function zoomOut() {
+    zoomed = false;
+    stage.classList.remove('zoomed');
+    img.style.width = '';
+    img.src = '{{ url_for("preview", pid=photo.id) }}';
+    zoomBtn.classList.remove('on');
+    zoomLabel.textContent = '100%';
+  }
+  zoomBtn.addEventListener('click', () => (zoomed ? zoomOut() : zoomIn()));
+
+  let drag = null;
+  stage.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || e.target.closest('.box')) return;
+    drag = { x: e.clientX, y: e.clientY, left: stage.scrollLeft, top: stage.scrollTop, moved: false };
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4) drag.moved = true;
+    if (zoomed && drag.moved) {
+      stage.classList.add('dragging');
+      stage.scrollLeft = drag.left - (e.clientX - drag.x);
+      stage.scrollTop = drag.top - (e.clientY - drag.y);
+    }
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (!drag) return;
+    const wasClick = !drag.moved;
+    drag = null;
+    stage.classList.remove('dragging');
+    if (!wasClick || e.target !== img) return;
+    if (zoomed) return zoomOut();
+    const rect = img.getBoundingClientRect();
+    zoomIn((e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height);
+  });
+
+  // ---- histogram (from the preview)
+  function drawHistogram() {
+    const canvas = document.getElementById('histogram');
+    if (!canvas || zoomed) return;
+    const w = 256, h = Math.max(1, Math.round(256 * img.naturalHeight / img.naturalWidth));
+    const off = document.createElement('canvas');
+    off.width = w; off.height = h;
+    const octx = off.getContext('2d', { willReadFrequently: true });
+    octx.drawImage(img, 0, 0, w, h);
+    const px = octx.getImageData(0, 0, w, h).data;
+    const channels = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+    const luma = new Uint32Array(256);
+    for (let i = 0; i < px.length; i += 4) {
+      channels[0][px[i]]++; channels[1][px[i + 1]]++; channels[2][px[i + 2]]++;
+      luma[(0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) | 0]++;
+    }
+    // Scale to the tallest bin, ignoring the clipped ends so they don't flatten everything else.
+    const peak = Math.max(1, ...channels.map((c) => Math.max(...c.subarray(1, 255))));
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    [['rgba(230, 70, 70, .8)', channels[0]], ['rgba(70, 200, 90, .8)', channels[1]], ['rgba(70, 120, 240, .85)', channels[2]]]
+      .forEach(([color, bins]) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(0, H);
+        for (let x = 0; x < 256; x++) ctx.lineTo((x / 255) * W, H - Math.min(1, bins[x] / peak) * (H - 4));
+        ctx.lineTo(W, H);
+        ctx.closePath();
+        ctx.fill();
+      });
+    ctx.globalCompositeOperation = 'source-over';
+    const total = w * h;
+    const clip = (count, x) => {
+      if (count / total < 0.005) return;
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      ctx.beginPath();
+      ctx.moveTo(x, 2); ctx.lineTo(x + (x ? -12 : 12), 2); ctx.lineTo(x, 14);
+      ctx.fill();
+    };
+    clip(luma[0] + luma[1], 0);
+    clip(luma[254] + luma[255], W);
+  }
+  if (img.complete) drawHistogram(); else img.addEventListener('load', drawHistogram, { once: true });
+
+  // ---- finder / editor
+  document.querySelectorAll('[data-reveal]').forEach((b) => b.addEventListener('click', async () => {
+    try { await api(`/api/photo/${PHOTO_ID}/reveal`, { action: b.dataset.reveal }); }
+    catch (err) { toast(err.message, true); }
+  }));
+
+  // ---- naming faces
+  const rows = [...document.querySelectorAll('.face-row')];
+  const rowFor = (id) => document.querySelector(`.face-row[data-face="${id}"]`);
+  const boxFor = (id) => document.querySelector(`.box[data-face="${id}"]`);
+  function focusRow(row) {
+    setPanel(true);
+    const input = row.querySelector('input');
+    input.focus();
+    input.select();
+  }
+  function reloadAt(row, message) {
+    if (message) toastAfterReload(message);
+    location.hash = row ? 'f' + row.dataset.face : '';
+    location.reload();
+  }
+  rows.forEach((row, idx) => {
+    const input = row.querySelector('input');
+    const nextUnnamed = () => rows.slice(idx + 1).find((r) => !r.dataset.original);
+    input.addEventListener('focus', () => boxFor(row.dataset.face).classList.add('active'));
+    input.addEventListener('blur', () => boxFor(row.dataset.face).classList.remove('active'));
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); input.blur(); } });
+    row.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name || name === row.dataset.original) {
+        const next = nextUnnamed();
+        if (next) focusRow(next);
+        return;
+      }
+      input.disabled = true;
+      try {
+        const r = await api(`/api/face/${row.dataset.face}/name`, { name });
+        let message = r.named_faces > 1 ? `Named ${r.named_faces} faces as ${name}` : `Saved ${name}`;
+        if (r.matched_to_named) message += `, and found ${r.matched_to_named} more faces of people you've named`;
+        reloadAt(nextUnnamed(), message);
+      } catch (err) { input.disabled = false; toast(err.message, true); }
+    });
+    const clear = row.querySelector('.clear');
+    if (clear) clear.addEventListener('click', async () => {
+      try { await api(`/api/face/${row.dataset.face}/assign`, { person_id: null }); reloadAt(row, 'Removed'); }
+      catch (err) { toast(err.message, true); }
+    });
+  });
+  document.querySelectorAll('.box').forEach((b) => b.addEventListener('click', () => focusRow(rowFor(b.dataset.face))));
+  const target = location.hash.match(/^#f(\d+)$/);
+  if (target && rowFor(target[1])) { setBoxes(true); focusRow(rowFor(target[1])); }
+
+  // ---- keyboard
+  document.addEventListener('keydown', (e) => {
+    if (isTyping(e) || help.open) return;
+    const change = cullKey(e);
+    if (change) { e.preventDefault(); setMeta(change); return; }
+    switch (e.key) {
+      case 'ArrowLeft': if (prevLink) location.href = prevLink.href; break;
+      case 'ArrowRight': if (nextLink) location.href = nextLink.href; break;
+      case 'Escape': if (zoomed) zoomOut(); else location.href = document.getElementById('to-grid').href; break;
+      case 'z': case 'Z': zoomed ? zoomOut() : zoomIn(); break;
+      case 'b': case 'B': setBoxes(!loupe.classList.contains('show-boxes')); break;
+      case 'i': case 'I': setPanel(loupe.classList.contains('no-panel')); break;
+      default: return;
+    }
+    e.preventDefault();
+  });
+
+  // ---- filmstrip & preloading
+  const current = document.querySelector('#filmstrip .current');
+  if (current) current.scrollIntoView({ inline: 'center', block: 'nearest' });
+  [nextLink, prevLink].forEach((link) => {
+    if (!link) return;
+    const id = link.href.match(/\/photo\/(\d+)/)[1];
+    new Image().src = `/preview/${id}`;
+  });
+</script>
+{% endblock %}

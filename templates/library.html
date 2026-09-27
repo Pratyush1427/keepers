@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}{{ person.label if person else 'Library' }}{% endblock %}
+{% block bodyclass %}page-library{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="toolbar-title">
+    <h1>{{ person.label if person else 'All photos' }}</h1>
+    <span class="muted">{{ shown }}{% if filters %} of {{ totals.photos }}{% endif %} photos</span>
+  </div>
+
+  <form class="filters" id="filters">
+    <select name="person" aria-label="Person" class="{{ 'set' if filters.person }}">
+      <option value="">Everyone</option>
+      {% for p in people if p.named %}
+      <option value="{{ p.id }}" {{ 'selected' if filters.person == p.id }}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <select name="flag" aria-label="Flag" class="{{ 'set' if filters.flag }}">
+      <option value="">All flags</option>
+      {% for key, (label, _) in flag_filters.items() %}
+      <option value="{{ key }}" {{ 'selected' if filters.flag == key }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="rating" aria-label="Rating" class="{{ 'set' if filters.rating }}">
+      <option value="">Any rating</option>
+      {% for n in range(1, 6) %}
+      <option value="{{ n }}" {{ 'selected' if filters.rating == n }}>{{ '★' * n }}{{ ' & up' if n < 5 }}</option>
+      {% endfor %}
+    </select>
+    <select name="sort" aria-label="Order" class="{{ 'set' if filters.sort }}">
+      <option value="">Newest first</option>
+      <option value="old" {{ 'selected' if filters.sort == 'old' }}>Oldest first</option>
+    </select>
+    {% if filters %}<a class="btn ghost small" href="{{ url_for('library') }}"><svg class="i"><use href="#i-x"/></svg>Clear</a>{% endif %}
+  </form>
+
+  <div class="toolbar-right">
+    <span class="tally" title="Picks · Rejected · Rated">
+      <span><i class="dot pick"></i>{{ totals.picks }}</span>
+      <span><i class="dot reject"></i>{{ totals.rejects }}</span>
+      <span><b class="star">★</b>{{ totals.rated }}</span>
+    </span>
+    <label class="size" title="Thumbnail size">
+      <svg class="i" style="width:.8em;height:.8em"><use href="#i-image"/></svg>
+      <input type="range" id="size" min="110" max="440" step="10" value="220" aria-label="Thumbnail size">
+      <svg class="i" style="width:1.25em;height:1.25em"><use href="#i-image"/></svg>
+    </label>
+  </div>
+</div>
+
+{% if years|length > 1 %}
+<nav class="years">{% for year, anchor in years %}<a href="#m{{ anchor }}">{{ year }}</a>{% endfor %}</nav>
+{% endif %}
+
+<main class="library">
+  {% if not months %}
+  <div class="empty">
+    <svg class="i"><use href="#i-image"/></svg>
+    {% if filters %}
+    <p>No photos match these filters.</p><a class="btn" href="{{ url_for('library') }}">Show all photos</a>
+    {% else %}
+    <p>Your library is empty.</p><a class="btn primary" href="{{ url_for('import_page') }}"><svg class="i"><use href="#i-import"/></svg>Import photos</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% for month in months %}
+  <section class="month" id="m{{ month.key }}">
+    <h2>{{ month.title }} <span class="muted small">{{ month.count }}</span></h2>
+    {% for day in month.days %}
+    <div class="day-head">
+      <h3>{{ day.title }} <span class="faint">{{ day.photos|length }}</span></h3>
+      <button type="button" class="btn ghost small select-day">Select day</button>
+    </div>
+    <div class="jgrid">
+      {% for ph in day.photos %}
+      <a class="tile{{ ' is-pick' if ph.flag == 1 }}{{ ' is-reject' if ph.flag == -1 }}" id="p{{ ph.id }}" data-id="{{ ph.id }}"
+         href="{{ url_for('photo', pid=ph.id) }}{{ qs(filters) }}" style="--ar: {{ ph.aspect }}">
+        <img class="fade" src="{{ url_for('thumb', pid=ph.id) }}" loading="lazy" decoding="async" alt="{{ ph.name }}">
+        <span class="tile-flag" aria-hidden="true">
+          <svg class="i flag-icon-pick"><use href="#i-flag"/></svg><svg class="i flag-icon-reject"><use href="#i-x"/></svg>
+        </span>
+        <span class="tile-check" role="checkbox" aria-label="Select"><svg class="i"><use href="#i-check"/></svg></span>
+        <span class="tile-info">
+          <span class="tile-stars" data-rating="{{ ph.rating }}">{{ '★' * ph.rating }}</span>
+          <span class="tile-name">{{ ph.name }}</span>
+          <span class="tile-time">{{ ph.time }}</span>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</main>
+
+<div class="selbar" id="selbar" hidden>
+  <span class="selbar-count"><b id="sel-count">0</b> selected</span>
+  <div class="stars" id="sel-stars" role="group" aria-label="Rate selected">
+    {% for i in range(1, 6) %}<button type="button" data-rating="{{ i }}" title="{{ i }} star{{ 's' if i > 1 }}">★</button>{% endfor %}
+  </div>
+  <button type="button" class="btn ghost small" data-rating="0" title="Clear rating (0)">No stars</button>
+  <span class="sep"></span>
+  <button type="button" class="btn small" data-flag="1" title="Pick (P)"><svg class="i"><use href="#i-flag"/></svg>Pick</button>
+  <button type="button" class="btn small danger" data-flag="-1" title="Reject (X)"><svg class="i"><use href="#i-x"/></svg>Reject</button>
+  <button type="button" class="btn ghost small" data-flag="0" title="Unflag (U)">Unflag</button>
+  <span class="sep"></span>
+  <button type="button" class="btn ghost small" id="sel-clear" title="Esc">Done</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Filters apply as soon as they change; empty values are left out of the URL.
+  document.querySelectorAll('#filters select').forEach((s) => s.addEventListener('change', () => {
+    const params = new URLSearchParams();
+    new FormData(document.querySelector('#filters')).forEach((v, k) => { if (v) params.set(k, v); });
+    location.search = params.toString();
+  }));
+
+  // Thumbnail size, remembered between visits.
+  const size = document.querySelector('#size');
+  const setSize = (v) => document.documentElement.style.setProperty('--row-h', v + 'px');
+  if (store.get('rowHeight')) size.value = store.get('rowHeight');
+  setSize(size.value);
+  size.addEventListener('input', () => { setSize(size.value); store.set('rowHeight', size.value); });
+
+  // ---- selection
+  const selbar = document.getElementById('selbar');
+  const sel = createSelection('.tile', (count) => {
+    selbar.hidden = count === 0;
+    document.body.classList.toggle('has-selbar', count > 0);
+    document.getElementById('sel-count').textContent = count;
+  });
+  const tileById = (id) => document.getElementById('p' + id);
+
+  document.querySelectorAll('.tile').forEach((tile) => {
+    tile.addEventListener('click', (e) => {
+      const onCheck = e.target.closest('.tile-check');
+      if (e.shiftKey) { e.preventDefault(); sel.range(tile); }
+      else if (onCheck || e.metaKey || e.ctrlKey || sel.selected.size) { e.preventDefault(); sel.toggle(tile); }
+    });
+  });
+  document.querySelectorAll('.select-day').forEach((b) => b.addEventListener('click', () => {
+    sel.add([...b.closest('.day-head').nextElementSibling.querySelectorAll('.tile')]);
+  }));
+  document.getElementById('sel-clear').addEventListener('click', () => sel.clear());
+
+  function renderTile(tile, meta) {
+    tile.classList.toggle('is-pick', meta.flag === 1);
+    tile.classList.toggle('is-reject', meta.flag === -1);
+    const stars = tile.querySelector('.tile-stars');
+    stars.dataset.rating = meta.rating;
+    stars.textContent = '★'.repeat(meta.rating);
+  }
+
+  async function applyToSelection(change) {
+    const ids = sel.ids();
+    try {
+      const r = await api('/api/photos/meta', { ids, ...change });
+      Object.entries(r.photos).forEach(([id, meta]) => renderTile(tileById(id), meta));
+      const what = 'rating' in change ? (change.rating ? '★'.repeat(change.rating) : 'rating cleared')
+        : { 1: 'picked', '-1': 'rejected', 0: 'unflagged' }[change.flag];
+      toast(`${ids.length} photo${ids.length > 1 ? 's' : ''} ${what.startsWith('★') ? 'rated ' + what : what}`);
+    } catch (err) { toast(err.message, true); }
+  }
+  selbar.querySelectorAll('[data-rating]').forEach((b) => b.addEventListener('click', () => applyToSelection({ rating: Number(b.dataset.rating) })));
+  selbar.querySelectorAll('[data-flag]').forEach((b) => b.addEventListener('click', () => applyToSelection({ flag: Number(b.dataset.flag) })));
+
+  // ---- keyboard: acts on the selection, or else on the photo under the mouse
+  let hovered = null;
+  document.querySelectorAll('.tile').forEach((t) => {
+    t.addEventListener('mouseenter', () => { hovered = t; });
+    t.addEventListener('focus', () => { hovered = t; });
+  });
+  document.querySelector('.library').addEventListener('mouseleave', () => { hovered = null; });
+
+  document.addEventListener('keydown', async (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && !e.target.matches('input, select')) {
+      e.preventDefault(); sel.all(); return;
+    }
+    if (e.key === 'Escape' && sel.selected.size) { sel.clear(); return; }
+    if (isTyping(e) || document.getElementById('help').open) return;
+    const change = cullKey(e);
+    if (change) {
+      e.preventDefault();
+      if (sel.selected.size) return applyToSelection(change);
+      if (!hovered) return;
+      try { renderTile(hovered, await api(`/api/photo/${hovered.dataset.id}/meta`, change)); }
+      catch (err) { toast(err.message, true); }
+    } else if ((e.key === 'Enter' || e.key === ' ') && hovered) {
+      e.preventDefault();
+      location.href = hovered.href;
+    }
+  });
+
+  // Coming back from a photo: bring it into view.
+  const back = location.hash.match(/^#p(\d+)$/);
+  if (back && tileById(back[1])) {
+    tileById(back[1]).scrollIntoView({ block: 'center' });
+    tileById(back[1]).focus({ preventScroll: true });
+  }
+</script>
+{% endblock %}
