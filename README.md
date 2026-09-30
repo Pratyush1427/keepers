@@ -4,6 +4,15 @@ A local photo library for photographers. It sorts photos by the date they were t
 people in them, and lets you cull (rate, pick, reject) and export sorted folders. Everything runs on your
 own machine: no cloud, no account, and your original files are never modified.
 
+![Browsing the timeline, rating and picking photos with the keyboard, then the People view](docs/screenshots/walkthrough.gif)
+
+| Timeline library | People, recognised automatically | Full-screen view |
+|---|---|---|
+| ![Timeline grouped by day, with star ratings, a pick flag and a dimmed rejected photo](docs/screenshots/library.png) | ![People page: four named astronauts and two unnamed groups](docs/screenshots/people.png) | ![Full-screen view with rating, histogram and the people in the photo](docs/screenshots/photo-view.png) |
+
+<sub>Demo library: 49 public-domain photos of NASA's Artemis II crew and mission ([NASA Image and Video Library](https://images.nasa.gov)).
+The app found the faces and grouped them into people; only the names were typed in.</sub>
+
 ## Features
 
 - **Timeline library.** Photos are grouped by month and day, shown uncropped in justified rows, with an adjustable thumbnail size.
@@ -25,7 +34,7 @@ own machine: no cloud, no account, and your original files are never modified.
 ## Setup
 
 ```bash
-git clone <this repo>
+git clone https://github.com/Pratyush1427/photo-organizer.git
 cd photo-organizer
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
