@@ -1,8 +1,8 @@
-# Photo Organizer
+# Bit
 
-A local photo library for photographers. It sorts photos by the date they were taken, recognises the
-people in them, and lets you cull (rate, pick, reject) and export sorted folders. Everything runs on your
-own machine: no cloud, no account, and your original files are never modified.
+Bit is a local photo library for photographers. It groups photos by date, recognises the people in them,
+and helps you cull the keepers with ratings, picks, and rejects — all on your own machine. No cloud, no
+account, and your original files stay untouched.
 
 ![Browsing the timeline, rating and picking photos with the keyboard, then the People view](docs/screenshots/walkthrough.gif)
 
