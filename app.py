@@ -578,5 +578,5 @@ def api_export():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
     threading.Thread(target=warm_cache, daemon=True).start()
-    print(f"Bit running at http://127.0.0.1:{port}")
+    print(f"Keepers running at http://127.0.0.1:{port}")
     app.run(host="127.0.0.1", port=port, threaded=True)

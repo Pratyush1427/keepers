@@ -1,6 +1,6 @@
-# Bit
+# Keepers
 
-Bit is a local photo library for photographers. It groups photos by date, recognises the people in them,
+Keepers is a local photo library for photographers. It groups photos by date, recognises the people in them,
 and helps you cull the keepers with ratings, picks, and rejects — all on your own machine. No cloud, no
 account, and your original files stay untouched.
 
@@ -34,8 +34,8 @@ The app found the faces and grouped them into people; only the names were typed 
 ## Setup
 
 ```bash
-git clone https://github.com/Pratyush1427/photo-organizer.git
-cd photo-organizer
+git clone https://github.com/Pratyush1427/keepers.git
+cd keepers
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
